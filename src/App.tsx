@@ -175,10 +175,10 @@ export default function App() {
         const lat2 = parseFloat(String(other.geojson?.coordinates[1] || (other as any).lat || 0));
         const lon2 = parseFloat(String(other.geojson?.coordinates[0] || (other as any).lng || 0));
         if (lat2 === 0 || lon2 === 0) return false;
-        return getDistance(lat1, lon1, lat2, lon2) <= 50;
+        return getDistance(lat1, lon1, lat2, lon2) <= 20;
       });
 
-      if (neighbors.length >= 2) {
+      if (neighbors.length >= 3) {
         clusters.push({
           id: q.earthquake_id,
           location: q.title || 'Bilinmeyen Bölge',
@@ -264,7 +264,7 @@ export default function App() {
             <div className="flex items-start gap-3">
               <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
               <p className="text-[11px] text-blue-700 leading-relaxed">
-                <strong>Kriter:</strong> Son 6 saat içinde <strong>50 km çapındaki bir alan</strong> içerisinde, büyüklük fark etmeksizin <strong>2 veya daha fazla</strong> deprem gerçekleştiğinde burada listelenir.
+                <strong>Kriter:</strong> Son 6 saat içinde <strong>20 km çapındaki bir alan</strong> içerisinde, büyüklük fark etmeksizin <strong>3 veya daha fazla</strong> deprem gerçekleştiğinde burada listelenir.
               </p>
             </div>
             {stats.reference && (
@@ -284,21 +284,21 @@ export default function App() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white border-l-4 border-red-500 rounded-xl p-5 shadow-sm flex items-start gap-4"
+                    className="bg-white border-l-4 border-red-500 rounded-xl p-3 shadow-sm flex items-start gap-3"
                   >
-                    <div className="p-3 bg-red-50 rounded-lg">
-                      <AlertTriangle className="w-6 h-6 text-red-600" />
+                    <div className="p-2 bg-red-50 rounded-lg shrink-0">
+                      <AlertTriangle className="w-4 h-4 text-red-600" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-lg leading-tight">{alert.location}</h3>
-                      <p className="text-gray-500 text-sm mt-1">
-                        Bu bölgede son 6 saat içinde <span className="font-bold text-red-600">{alert.count}</span> deprem kaydedildi.
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-sm leading-tight truncate">{alert.location}</h3>
+                      <p className="text-gray-500 text-[11px] mt-0.5">
+                        Son 6 saatte <span className="font-bold text-red-600">{alert.count}</span> deprem.
                       </p>
-                      <div className="mt-3 flex items-center gap-3">
-                        <span className="text-[10px] font-bold bg-gray-100 px-2 py-1 rounded text-gray-600 uppercase">
-                          En Büyük: {alert.maxMag}
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[9px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
+                          Max: {alert.maxMag}
                         </span>
-                        <span className="text-[10px] font-bold bg-gray-100 px-2 py-1 rounded text-gray-600 uppercase">
+                        <span className="text-[9px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
                           Son: {alert.latest.date?.split(' ')[1] || '--:--'}
                         </span>
                       </div>
@@ -417,7 +417,7 @@ export default function App() {
               </div>
               <div>
                 <p>Aktif Uyarı: {alerts.length}</p>
-                <p>Yarıçap: 50km</p>
+                <p>Yarıçap: 20km</p>
               </div>
             </div>
             <div className="mt-2 pt-2 border-t border-gray-200">
