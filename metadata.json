@@ -1,0 +1,5 @@
+{
+  "name": "Türkiye Deprem Takip",
+  "description": "Türkiye'deki son depremleri takip eden ve son 6 saat içindeki deprem kümelenmelerini (aynı bölgede 2'den fazla) bildiren uygulama.",
+  "requestFramePermissions": []
+}
