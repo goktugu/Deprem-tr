@@ -105,11 +105,18 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [activeTab, setActiveTab] = useState<'live' | 'history'>('live');
+
+  const [historyData, setHistoryData] = useState<Earthquake[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
 
   const fetchEarthquakes = async () => {
     setLoading(true);
     try {
-      const response = await fetch('https://api.orhanaydogdu.com.tr/deprem/kandilli/live?limit=100');
+      // Fetch from our local SQLite database API
+      const response = await fetch('/api/earthquakes');
       if (!response.ok) throw new Error('Veri alınamadı');
       const data: ApiResponse = await response.json();
       setEarthquakes(data.result || []);
@@ -123,11 +130,33 @@ export default function App() {
     }
   };
 
+  const fetchHistory = async (page: number) => {
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/history?page=${page}&limit=50`);
+      if (!response.ok) throw new Error('Geçmiş veriler alınamadı');
+      const data = await response.json();
+      setHistoryData(data.result || []);
+      setHistoryTotalPages(data.pagination.totalPages);
+      setHistoryPage(data.pagination.page);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchEarthquakes();
     const interval = setInterval(fetchEarthquakes, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchHistory(historyPage);
+    }
+  }, [activeTab, historyPage]);
 
   const getEqDateParts = (eq: any) => {
     const s = eq.date || eq.date_time || eq.tarih || '';
@@ -263,229 +292,337 @@ export default function App() {
             </div>
           </div>
           
+          <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setActiveTab('live')}
+              className={cn(
+                "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                activeTab === 'live' ? "bg-white text-red-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              Canlı Takip
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={cn(
+                "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                activeTab === 'history' ? "bg-white text-red-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              Geçmiş Depremler
+            </button>
+          </div>
+
           <button 
-            onClick={fetchEarthquakes}
-            disabled={loading}
+            onClick={() => activeTab === 'live' ? fetchEarthquakes() : fetchHistory(historyPage)}
+            disabled={activeTab === 'live' ? loading : historyLoading}
             className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={cn("w-5 h-5 text-gray-600", loading && "animate-spin")} />
+            <RefreshCw className={cn("w-5 h-5 text-gray-600", (loading || historyLoading) && "animate-spin")} />
           </button>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
-        
-        {/* Alerts Section */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <Bell className="w-4 h-4 text-red-500" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Kümelenme Uyarıları</h2>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] text-gray-400 font-medium">
-              <Clock className="w-3 h-3" />
-              Son 24 Saatte {stats.recent} Deprem (<span className="text-amber-600 font-bold">{stats.recentMag3Plus} ≥ 3.0</span>)
-            </div>
-          </div>
-
-          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 space-y-2">
-            <div className="flex items-start gap-3">
-              <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-              <p className="text-[11px] text-blue-700 leading-relaxed">
-                <strong>Kriter:</strong> Son 24 saat içinde <strong>20 km çapındaki bir alan</strong> içerisinde, büyüklük fark etmeksizin <strong>3 veya daha fazla</strong> deprem gerçekleştiğinde burada listelenir.
-              </p>
-            </div>
-            {stats.reference && (
-              <div className="pt-2 border-t border-blue-100 grid grid-cols-2 gap-2 text-[9px] text-blue-400 font-mono uppercase">
-                <span>Referans Zaman: {format(stats.reference, 'HH:mm:ss')}</span>
-                <span>Taranan (Son 24s): {stats.recent} Deprem</span>
-              </div>
-            )}
-          </div>
+      {activeTab === 'live' && (
+        <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
           
-          <AnimatePresence mode="popLayout">
-            {alerts.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {alerts.map((alert) => (
-                  <motion.div
-                    key={alert.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className={cn(
-                      "border-l-4 rounded-xl p-2 shadow-sm flex items-center justify-between gap-2",
-                      alert.maxMag >= 4 ? "bg-red-50/30 border-red-500" : 
-                      alert.maxMag >= 3 ? "bg-amber-50/30 border-amber-500" : 
-                      "bg-white border-gray-400"
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
+          {/* Alerts Section */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-red-500" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Kümelenme Uyarıları</h2>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] text-gray-400 font-medium">
+                <Clock className="w-3 h-3" />
+                Son 24 Saatte {stats.recent} Deprem (<span className="text-amber-600 font-bold">{stats.recentMag3Plus} ≥ 3.0</span>)
+              </div>
+            </div>
+
+            <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 space-y-2">
+              <div className="flex items-start gap-3">
+                <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  <strong>Kriter:</strong> Son 24 saat içinde <strong>20 km çapındaki bir alan</strong> içerisinde, büyüklük fark etmeksizin <strong>3 veya daha fazla</strong> deprem gerçekleştiğinde burada listelenir.
+                </p>
+              </div>
+              {stats.reference && (
+                <div className="pt-2 border-t border-blue-100 grid grid-cols-2 gap-2 text-[9px] text-blue-400 font-mono uppercase">
+                  <span>Referans Zaman: {format(stats.reference, 'HH:mm:ss')}</span>
+                  <span>Taranan (Son 24s): {stats.recent} Deprem</span>
+                </div>
+              )}
+            </div>
+            
+            <AnimatePresence mode="popLayout">
+              {alerts.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {alerts.map((alert) => (
+                    <motion.div
+                      key={alert.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className={cn(
+                        "border-l-4 rounded-xl p-2 shadow-sm flex items-center justify-between gap-2",
+                        alert.maxMag >= 4 ? "bg-red-50/30 border-red-500" : 
+                        alert.maxMag >= 3 ? "bg-amber-50/30 border-amber-500" : 
+                        "bg-white border-gray-400"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={cn(
+                          "p-1 rounded-lg shrink-0",
+                          alert.maxMag >= 4 ? "bg-red-50" : 
+                          alert.maxMag >= 3 ? "bg-amber-50" : 
+                          "bg-gray-50"
+                        )}>
+                          <AlertTriangle className={cn(
+                            "w-3 h-3",
+                            alert.maxMag >= 4 ? "text-red-600" : 
+                            alert.maxMag >= 3 ? "text-amber-600" : 
+                            "text-gray-600"
+                          )} />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-xs leading-tight truncate">{alert.location}</h3>
+                          <p className="text-gray-500 text-[10px] mt-0.5 flex items-center gap-1">
+                            <span className="font-bold text-red-600">{alert.count}</span> deprem.
+                            {alert.maxMag >= 3 && (
+                              <span className="text-[8px] font-black text-amber-600 bg-amber-50 px-1 rounded border border-amber-100">3.0+</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={cn(
+                          "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase",
+                          alert.maxMag >= 4 ? "bg-red-50 text-red-600" : 
+                          alert.maxMag >= 3 ? "bg-amber-50 text-amber-600" : 
+                          "bg-gray-100 text-gray-600"
+                        )}>
+                          M: {alert.maxMag}
+                        </span>
+                        <span className="text-[8px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
+                          S: {getEqDateParts(alert.latest).time.slice(0, 5)}
+                        </span>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Important Quakes (3.0+) */}
+            {importantQuakes.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-2 px-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-gray-500">Önemli Depremler (3.0+)</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {importantQuakes.slice(0, 6).map((eq) => (
+                    <motion.div
+                      key={eq.earthquake_id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-white border border-amber-100 rounded-lg p-2 flex items-center justify-between gap-2 shadow-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-[10px] truncate leading-tight">{eq.title}</h4>
+                        <p className="text-[9px] text-gray-400 font-medium">{getEqDateParts(eq).time.slice(0, 5)}</p>
+                      </div>
                       <div className={cn(
-                        "p-1 rounded-lg shrink-0",
-                        alert.maxMag >= 4 ? "bg-red-50" : 
-                        alert.maxMag >= 3 ? "bg-amber-50" : 
-                        "bg-gray-50"
+                        "text-[10px] font-black px-1.5 py-0.5 rounded shrink-0",
+                        eq.mag >= 4 ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
                       )}>
-                        <AlertTriangle className={cn(
-                          "w-3 h-3",
-                          alert.maxMag >= 4 ? "text-red-600" : 
-                          alert.maxMag >= 3 ? "text-amber-600" : 
-                          "text-gray-600"
-                        )} />
+                        {eq.mag.toFixed(1)}
                       </div>
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-xs leading-tight truncate">{alert.location}</h3>
-                        <p className="text-gray-500 text-[10px] mt-0.5 flex items-center gap-1">
-                          <span className="font-bold text-red-600">{alert.count}</span> deprem.
-                          {alert.maxMag >= 3 && (
-                            <span className="text-[8px] font-black text-amber-600 bg-amber-50 px-1 rounded border border-amber-100">3.0+</span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={cn(
-                        "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase",
-                        alert.maxMag >= 4 ? "bg-red-50 text-red-600" : 
-                        alert.maxMag >= 3 ? "bg-amber-50 text-amber-600" : 
-                        "bg-gray-100 text-gray-600"
-                      )}>
-                        M: {alert.maxMag}
-                      </span>
-                      <span className="text-[8px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
-                        S: {getEqDateParts(alert.latest).time.slice(0, 5)}
-                      </span>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  ))}
+                </div>
               </div>
             )}
-          </AnimatePresence>
 
-          {/* Important Quakes (3.0+) */}
-          {importantQuakes.length > 0 && (
-            <div className="space-y-3 pt-2">
-              <div className="flex items-center gap-2 px-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                <h3 className="text-[11px] font-black uppercase tracking-wider text-gray-500">Önemli Depremler (3.0+)</h3>
+            {alerts.length === 0 && importantQuakes.length === 0 && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="bg-white border border-dashed border-gray-200 rounded-2xl p-8 text-center"
+              >
+                <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Activity className="w-6 h-6 text-gray-300" />
+                </div>
+                <p className="text-gray-400 text-sm font-medium">Şu an için herhangi bir kümelenme veya önemli deprem tespit edilmedi.</p>
+              </motion.div>
+            )}
+          </section>
+
+          {/* Recent Earthquakes List */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-gray-400" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
+                  Son Depremler ({earthquakes.length})
+                </h2>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                {importantQuakes.slice(0, 6).map((eq) => (
-                  <motion.div
-                    key={eq.earthquake_id}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-white border border-amber-100 rounded-lg p-2 flex items-center justify-between gap-2 shadow-sm"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <h4 className="font-bold text-[10px] truncate leading-tight">{eq.title}</h4>
-                      <p className="text-[9px] text-gray-400 font-medium">{getEqDateParts(eq).time.slice(0, 5)}</p>
-                    </div>
-                    <div className={cn(
-                      "text-[10px] font-black px-1.5 py-0.5 rounded shrink-0",
-                      eq.mag >= 4 ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
-                    )}>
-                      {eq.mag.toFixed(1)}
-                    </div>
-                  </motion.div>
-                ))}
+              <div className="text-[10px] font-mono text-gray-400">
+                Son Güncelleme: {format(lastUpdated, 'HH:mm:ss')}
               </div>
             </div>
-          )}
 
-          {alerts.length === 0 && importantQuakes.length === 0 && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="bg-white border border-dashed border-gray-200 rounded-2xl p-8 text-center"
-            >
-              <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Activity className="w-6 h-6 text-gray-300" />
+            {error && (
+              <div className="bg-red-50 border border-red-100 text-red-600 p-4 rounded-xl text-sm flex items-center gap-3">
+                <Info className="w-5 h-5 shrink-0" />
+                {error}
               </div>
-              <p className="text-gray-400 text-sm font-medium">Şu an için herhangi bir kümelenme veya önemli deprem tespit edilmedi.</p>
-            </motion.div>
-          )}
-        </section>
+            )}
 
-        {/* Recent Earthquakes List */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-gray-400" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-                Son Depremler ({earthquakes.length})
-              </h2>
-            </div>
-            <div className="text-[10px] font-mono text-gray-400">
-              Son Güncelleme: {format(lastUpdated, 'HH:mm:ss')}
-            </div>
-          </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              {loading && earthquakes.length === 0 ? (
+                <div className="p-12 text-center space-y-4">
+                  <RefreshCw className="w-8 h-8 text-red-500 animate-spin mx-auto" />
+                  <p className="text-gray-400 text-sm">Veriler güncelleniyor...</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {processedQuakes.slice(0, 100).map((eq) => (
+                    <motion.div 
+                      key={eq.earthquake_id}
+                      layout
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="group hover:bg-gray-50 transition-colors p-4 md:p-6 flex items-center gap-4 md:gap-8"
+                    >
+                      {/* Magnitude Badge */}
+                      <div className={cn(
+                        "w-14 h-14 shrink-0 rounded-2xl border flex flex-col items-center justify-center transition-transform group-hover:scale-105",
+                        getMagColor(eq.mag)
+                      )}>
+                        <span className="text-xl font-black leading-none">{eq.mag.toFixed(1)}</span>
+                        <span className="text-[8px] font-bold uppercase mt-1 opacity-70">ML</span>
+                      </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-100 text-red-600 p-4 rounded-xl text-sm flex items-center gap-3">
-              <Info className="w-5 h-5 shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            {loading && earthquakes.length === 0 ? (
-              <div className="p-12 text-center space-y-4">
-                <RefreshCw className="w-8 h-8 text-red-500 animate-spin mx-auto" />
-                <p className="text-gray-400 text-sm">Veriler güncelleniyor...</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {processedQuakes.slice(0, 100).map((eq) => (
-                  <motion.div 
-                    key={eq.earthquake_id}
-                    layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="group hover:bg-gray-50 transition-colors p-4 md:p-6 flex items-center gap-4 md:gap-8"
-                  >
-                    {/* Magnitude Badge */}
-                    <div className={cn(
-                      "w-14 h-14 shrink-0 rounded-2xl border flex flex-col items-center justify-center transition-transform group-hover:scale-105",
-                      getMagColor(eq.mag)
-                    )}>
-                      <span className="text-xl font-black leading-none">{eq.mag.toFixed(1)}</span>
-                      <span className="text-[8px] font-bold uppercase mt-1 opacity-70">ML</span>
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-base md:text-lg truncate group-hover:text-red-600 transition-colors">
-                        {eq.title}
-                      </h3>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                        <div className="flex items-center gap-1.5 text-gray-400">
-                          <Clock className="w-3.5 h-3.5" />
-                          <div className="flex flex-col">
-                            <span className="text-sm font-black text-gray-900">
-                              {eq.parsedDate ? format(eq.parsedDate, 'HH:mm:ss') : getEqDateParts(eq).time}
-                            </span>
-                            <span className="text-[10px] font-bold text-gray-500">
-                              {eq.parsedDate ? format(eq.parsedDate, 'yyyy.MM.dd') : getEqDateParts(eq).date}
-                            </span>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-base md:text-lg truncate group-hover:text-red-600 transition-colors">
+                          {eq.title}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                          <div className="flex items-center gap-1.5 text-gray-400">
+                            <Clock className="w-3.5 h-3.5" />
+                            <div className="flex flex-col">
+                              <span className="text-sm font-black text-gray-900">
+                                {eq.parsedDate ? format(eq.parsedDate, 'HH:mm:ss') : getEqDateParts(eq).time}
+                              </span>
+                              <span className="text-[10px] font-bold text-gray-500">
+                                {eq.parsedDate ? format(eq.parsedDate, 'yyyy.MM.dd') : getEqDateParts(eq).date}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-gray-400">
+                            <MapPin className="w-3.5 h-3.5" />
+                            <span className="text-xs font-medium">Derinlik: {eq.depth} km</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 text-gray-400">
-                          <MapPin className="w-3.5 h-3.5" />
-                          <span className="text-xs font-medium">Derinlik: {eq.depth} km</span>
+                      </div>
+
+                      <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-400 transition-colors" />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        </main>
+      )}
+
+      {activeTab === 'history' && (
+        <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+          <section className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Geçmiş Deprem Arşivi</h2>
+              <div className="flex items-center gap-2 text-[10px] text-gray-400 font-medium">
+                <RefreshCw className={cn("w-3 h-3", historyLoading && "animate-spin")} />
+                {historyLoading ? 'Yükleniyor...' : `Sayfa ${historyPage} / ${historyTotalPages}`}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              {historyLoading && historyData.length === 0 ? (
+                <div className="p-12 text-center space-y-4">
+                  <RefreshCw className="w-8 h-8 text-red-500 animate-spin mx-auto" />
+                  <p className="text-gray-400 text-sm">Arşiv yükleniyor...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="divide-y divide-gray-50">
+                    {historyData.map((eq) => (
+                      <div 
+                        key={eq.earthquake_id}
+                        className="group hover:bg-gray-50 transition-colors p-4 md:p-6 flex items-center gap-4 md:gap-8"
+                      >
+                        {/* Magnitude Badge */}
+                        <div className={cn(
+                          "w-14 h-14 shrink-0 rounded-2xl border flex flex-col items-center justify-center transition-transform group-hover:scale-105",
+                          getMagColor(eq.mag)
+                        )}>
+                          <span className="text-xl font-black leading-none">{eq.mag.toFixed(1)}</span>
+                          <span className="text-[8px] font-bold uppercase mt-1 opacity-70">ML</span>
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-base md:text-lg truncate group-hover:text-red-600 transition-colors">
+                            {eq.title}
+                          </h3>
+                          
+                          <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2">
+                            <div className="flex items-center gap-1.5 text-gray-500">
+                              <Clock className="w-3.5 h-3.5" />
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-sm font-medium text-gray-900">{getEqDateParts(eq).time}</span>
+                                <span className="text-xs">{getEqDateParts(eq).date}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-gray-400">
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span className="text-xs font-medium">Derinlik: {eq.depth} km</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-
-                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-400 transition-colors" />
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
+                    ))}
+                  </div>
+                  
+                  {/* Pagination Controls */}
+                  <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+                    <button 
+                      onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                      disabled={historyPage === 1 || historyLoading}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Önceki Sayfa
+                    </button>
+                    <span className="text-sm text-gray-500 font-medium">
+                      Sayfa {historyPage} / {historyTotalPages}
+                    </span>
+                    <button 
+                      onClick={() => setHistoryPage(p => Math.min(historyTotalPages, p + 1))}
+                      disabled={historyPage === historyTotalPages || historyLoading}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Sonraki Sayfa
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        </main>
+      )}
 
       {/* Footer */}
       <footer className="max-w-5xl mx-auto px-4 py-12 text-center space-y-6">
@@ -511,7 +648,7 @@ export default function App() {
                 <p>Filtrelenen (24s): {stats.recent}</p>
                 <p>3.0+ Deprem: {stats.recentMag3Plus}</p>
                 <p>Referans: {stats.reference ? format(stats.reference, 'yyyy-MM-dd HH:mm:ss') : 'Yok'}</p>
-                <p className="text-[8px] mt-1 text-gray-400 truncate">URL: kandilli/live?limit=100</p>
+                <p className="text-[8px] mt-1 text-gray-400 truncate">URL: /api/earthquakes (Local DB)</p>
               </div>
               <div>
                 <p>Aktif Uyarı: {alerts.length}</p>
