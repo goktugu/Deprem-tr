@@ -13,12 +13,14 @@ import {
   RefreshCw, 
   ChevronRight,
   Info,
-  Bell
+  Bell,
+  Map
 } from 'lucide-react';
 import { format, subHours, isAfter } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { supabase } from './lib/supabase';
+import EarthquakeMap from './components/EarthquakeMap';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -105,6 +107,7 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [showMap, setShowMap] = useState(false);
 
   const fetchEarthquakes = async () => {
     setLoading(true);
@@ -410,22 +413,22 @@ export default function App() {
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans selection:bg-red-100">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-200">
+            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-200 shrink-0">
               <Activity className="text-white w-6 h-6" />
             </div>
-            <div>
+            <div className="hidden sm:block">
               <h1 className="text-xl font-bold tracking-tight">Deprem Takip</h1>
               <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Türkiye Canlı Veri</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg">
+          <div className="flex items-center gap-1 sm:gap-2 bg-gray-100 p-1 rounded-lg flex-1 sm:flex-none justify-center">
             <button
               onClick={() => setActiveTab('live')}
               className={cn(
-                "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                "px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all flex-1 sm:flex-none",
                 activeTab === 'live' ? "bg-white text-red-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
               )}
             >
@@ -434,7 +437,7 @@ export default function App() {
             <button
               onClick={() => setActiveTab('history')}
               className={cn(
-                "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                "px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all flex-1 sm:flex-none",
                 activeTab === 'history' ? "bg-white text-red-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
               )}
             >
@@ -442,15 +445,43 @@ export default function App() {
             </button>
           </div>
 
-          <button 
-            onClick={fetchEarthquakes}
-            disabled={loading || historyLoading}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={cn("w-5 h-5 text-gray-600", (loading || historyLoading) && "animate-spin")} />
-          </button>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <button 
+              onClick={() => setShowMap(true)}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              title="Haritada Göster"
+            >
+              <Map className="w-5 h-5 text-gray-600" />
+            </button>
+            <button 
+              onClick={fetchEarthquakes}
+              disabled={loading || historyLoading}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
+              title="Yenile"
+            >
+              <RefreshCw className={cn("w-5 h-5 text-gray-600", (loading || historyLoading) && "animate-spin")} />
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* Map Overlay */}
+      <AnimatePresence>
+        {showMap && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed inset-0 z-[100]"
+          >
+            <EarthquakeMap 
+              earthquakes={earthquakes} 
+              onClose={() => setShowMap(false)} 
+              parseEqDate={parseEqDate}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {activeTab === 'live' && (
         <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
