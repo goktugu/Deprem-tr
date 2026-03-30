@@ -636,7 +636,7 @@ export default function App() {
 
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-base md:text-lg truncate group-hover:text-red-600 transition-colors">
+                        <h3 className="font-bold tracking-tight text-[10px] sm:text-xs md:text-base lg:text-lg truncate group-hover:text-red-600 transition-colors">
                           {eq.title}
                         </h3>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
@@ -704,7 +704,7 @@ export default function App() {
 
                         {/* Info */}
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-bold text-base md:text-lg truncate group-hover:text-red-600 transition-colors">
+                          <h3 className="font-bold tracking-tight text-[10px] sm:text-xs md:text-base lg:text-lg truncate group-hover:text-red-600 transition-colors">
                             {eq.title}
                           </h3>
                           
