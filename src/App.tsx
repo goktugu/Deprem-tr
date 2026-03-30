@@ -18,6 +18,7 @@ import {
 import { format, subHours, isAfter } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { supabase } from './lib/supabase';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -33,13 +34,6 @@ interface Earthquake {
   geojson: {
     coordinates: [number, number];
   };
-  location_properties: {
-    epiCenter: {
-      name: string;
-    };
-  };
-  revised: string | null;
-  location_full: string;
 }
 
 interface ApiResponse {
@@ -114,35 +108,156 @@ export default function App() {
 
   const fetchEarthquakes = async () => {
     setLoading(true);
+    setError(null);
+    
+    // 1. Fetch from KOERI via proxy
+    const targetUrl = 'http://www.koeri.boun.edu.tr/scripts/lst0.asp';
+    const proxies = [
+      `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
+    ];
+
+    let text = '';
+    let success = false;
+
+    for (const proxyUrl of proxies) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds per proxy
+
+        const response = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) continue;
+
+        if (proxyUrl.includes('allorigins.win/get')) {
+          const data = await response.json();
+          if (data.contents) {
+            text = data.contents;
+            success = true;
+            break;
+          }
+        } else {
+          text = await response.text();
+          if (text && text.includes('--------------')) {
+            success = true;
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`Proxy failed: ${proxyUrl}`, err);
+        continue;
+      }
+    }
+
     try {
-      // Fetch from our local SQLite database API
-      const response = await fetch('/api/earthquakes');
-      if (!response.ok) throw new Error('Veri alınamadı');
-      const data: ApiResponse = await response.json();
-      setEarthquakes(data.result || []);
-      setLastUpdated(new Date());
-      setError(null);
-    } catch (err) {
-      setError('Deprem verileri yüklenirken bir hata oluştu.');
+      if (success && text) {
+        const lines = text.split('\n');
+        let isData = false;
+        const supabaseData = [];
+
+        for (const line of lines) {
+          if (line.includes('--------------')) {
+            isData = true;
+            continue;
+          }
+          if (!isData || line.trim() === '') continue;
+
+          const date = line.substring(0, 10).trim();
+          const time = line.substring(11, 19).trim();
+          const latStr = line.substring(21, 28).trim();
+          const lngStr = line.substring(31, 38).trim();
+          const depthStr = line.substring(46, 50).trim();
+          const magStr = line.substring(60, 63).trim();
+          const title = line.substring(71, 121).trim();
+
+          const lat = parseFloat(latStr);
+          const lng = parseFloat(lngStr);
+          const depth = parseFloat(depthStr);
+          const mag = parseFloat(magStr);
+
+          if (!date || !time || isNaN(lat) || isNaN(lng)) continue;
+
+          const dateTimeStr = `${date} ${time}`;
+          const id = `${date.replace(/\./g, '')}${time.replace(/:/g, '')}_${lat}_${lng}`;
+
+          supabaseData.push({
+            id: id,
+            date_time: dateTimeStr,
+            lat: lat,
+            lng: lng,
+            depth: isNaN(depth) ? 0 : depth,
+            mag: isNaN(mag) ? 0 : mag,
+            title: title
+          });
+        }
+
+        if (supabaseData.length > 0) {
+          // Upsert to Supabase
+          const { error: upsertError } = await supabase
+            .from('earthquakes')
+            .upsert(supabaseData, { onConflict: 'id', ignoreDuplicates: true });
+            
+          if (upsertError) {
+            console.error('Supabase sync error:', upsertError);
+          }
+        }
+      }
+
+      // 2. Load from Supabase
+      await loadFromSupabase(1, false);
+      if (activeTab === 'history') {
+        await loadFromSupabase(historyPage, true);
+      }
+      
+    } catch (err: any) {
+      setError(err.message || 'Deprem verileri yüklenirken bir hata oluştu.');
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchHistory = async (page: number) => {
-    setHistoryLoading(true);
+  const loadFromSupabase = async (page: number = 1, isHistory = false) => {
+    if (isHistory) setHistoryLoading(true);
+    
     try {
-      const response = await fetch(`/api/history?page=${page}&limit=50`);
-      if (!response.ok) throw new Error('Geçmiş veriler alınamadı');
-      const data = await response.json();
-      setHistoryData(data.result || []);
-      setHistoryTotalPages(data.pagination.totalPages);
-      setHistoryPage(data.pagination.page);
-    } catch (err) {
-      console.error(err);
+      const limit = isHistory ? 50 : 500;
+      const start = (page - 1) * limit;
+      const end = start + limit - 1;
+
+      const { data, error, count } = await supabase
+        .from('earthquakes')
+        .select('*', { count: 'exact' })
+        .order('date_time', { ascending: false })
+        .range(start, end);
+
+      if (error) throw error;
+
+      const mappedData: Earthquake[] = (data || []).map(row => ({
+        earthquake_id: row.id,
+        title: row.title,
+        date: row.date_time,
+        mag: row.mag,
+        depth: row.depth,
+        geojson: {
+          coordinates: [row.lng, row.lat]
+        }
+      }));
+
+      if (isHistory) {
+        setHistoryData(mappedData);
+        setHistoryTotalPages(Math.ceil((count || 0) / limit));
+      } else {
+        setEarthquakes(mappedData);
+        setLastUpdated(new Date());
+      }
+    } catch (err: any) {
+      console.error('Supabase load error:', err);
+      if (!isHistory) setError('Veritabanından veriler alınamadı.');
     } finally {
-      setHistoryLoading(false);
+      if (isHistory) setHistoryLoading(false);
     }
   };
 
@@ -154,9 +269,11 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === 'history') {
-      fetchHistory(historyPage);
+      loadFromSupabase(historyPage, true);
     }
   }, [activeTab, historyPage]);
+
+  const paginatedHistory = historyData; // We now fetch paginated data directly from Supabase
 
   const getEqDateParts = (eq: any) => {
     const s = eq.date || eq.date_time || eq.tarih || '';
@@ -314,8 +431,8 @@ export default function App() {
           </div>
 
           <button 
-            onClick={() => activeTab === 'live' ? fetchEarthquakes() : fetchHistory(historyPage)}
-            disabled={activeTab === 'live' ? loading : historyLoading}
+            onClick={fetchEarthquakes}
+            disabled={loading || historyLoading}
             className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
           >
             <RefreshCw className={cn("w-5 h-5 text-gray-600", (loading || historyLoading) && "animate-spin")} />
@@ -559,7 +676,7 @@ export default function App() {
               ) : (
                 <>
                   <div className="divide-y divide-gray-50">
-                    {historyData.map((eq) => (
+                    {paginatedHistory.map((eq) => (
                       <div 
                         key={eq.earthquake_id}
                         className="group hover:bg-gray-50 transition-colors p-4 md:p-6 flex items-center gap-4 md:gap-8"

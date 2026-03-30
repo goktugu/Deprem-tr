@@ -1,0 +1,25 @@
+name: Deprem Verilerini Senkronize Et
+
+on:
+  schedule:
+    # Her 15 dakikada bir çalıştırır
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # GitHub arayüzünden manuel tetiklemeye izin verir
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu İndir
+        uses: actions/checkout@v4
+
+      - name: Node.js Kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Bağımlılıkları Yükle
+        run: npm install
+
+      - name: Senkronizasyon Scriptini Çalıştır
+        run: node scripts/sync.js
