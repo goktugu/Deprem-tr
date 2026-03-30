@@ -156,6 +156,7 @@ export default function App() {
         const lines = text.split('\n');
         let isData = false;
         const supabaseData = [];
+        const parsedQuakes: Earthquake[] = [];
 
         for (const line of lines) {
           if (line.includes('--------------')) {
@@ -191,24 +192,40 @@ export default function App() {
             mag: isNaN(mag) ? 0 : mag,
             title: title
           });
+          
+          parsedQuakes.push({
+            earthquake_id: id,
+            title: title,
+            date: dateTimeStr,
+            mag: isNaN(mag) ? 0 : mag,
+            depth: isNaN(depth) ? 0 : depth,
+            geojson: {
+              coordinates: [lng, lat]
+            }
+          });
         }
 
-        if (supabaseData.length > 0) {
-          // Upsert to Supabase
-          const { error: upsertError } = await supabase
+        if (parsedQuakes.length > 0) {
+          // Update UI immediately with live data
+          setEarthquakes(parsedQuakes);
+          setLastUpdated(new Date());
+          setLoading(false); // Stop loading spinner early
+          
+          // Fire and forget: Upsert to Supabase in the background
+          supabase
             .from('earthquakes')
-            .upsert(supabaseData, { onConflict: 'id', ignoreDuplicates: true });
-            
-          if (upsertError) {
-            console.error('Supabase sync error:', upsertError);
-          }
+            .upsert(supabaseData, { onConflict: 'id', ignoreDuplicates: true })
+            .then(({ error: upsertError }) => {
+              if (upsertError) {
+                console.error('Supabase sync error:', upsertError);
+              }
+            });
         }
       }
 
-      // 2. Load from Supabase
-      await loadFromSupabase(1, false);
+      // If user is on history tab, refresh history from Supabase
       if (activeTab === 'history') {
-        await loadFromSupabase(historyPage, true);
+        loadHistoryFromSupabase(historyPage);
       }
       
     } catch (err: any) {
@@ -219,11 +236,11 @@ export default function App() {
     }
   };
 
-  const loadFromSupabase = async (page: number = 1, isHistory = false) => {
-    if (isHistory) setHistoryLoading(true);
+  const loadHistoryFromSupabase = async (page: number = 1) => {
+    setHistoryLoading(true);
     
     try {
-      const limit = isHistory ? 50 : 500;
+      const limit = 50;
       const start = (page - 1) * limit;
       const end = start + limit - 1;
 
@@ -246,18 +263,13 @@ export default function App() {
         }
       }));
 
-      if (isHistory) {
-        setHistoryData(mappedData);
-        setHistoryTotalPages(Math.ceil((count || 0) / limit));
-      } else {
-        setEarthquakes(mappedData);
-        setLastUpdated(new Date());
-      }
+      setHistoryData(mappedData);
+      setHistoryTotalPages(Math.ceil((count || 0) / limit));
     } catch (err: any) {
       console.error('Supabase load error:', err);
-      if (!isHistory) setError('Veritabanından veriler alınamadı.');
+      setError('Geçmiş veriler veritabanından alınamadı.');
     } finally {
-      if (isHistory) setHistoryLoading(false);
+      setHistoryLoading(false);
     }
   };
 
@@ -269,7 +281,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === 'history') {
-      loadFromSupabase(historyPage, true);
+      loadHistoryFromSupabase(historyPage);
     }
   }, [activeTab, historyPage]);
 
