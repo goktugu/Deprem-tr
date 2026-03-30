@@ -109,7 +109,7 @@ export default function App() {
   const fetchEarthquakes = async () => {
     setLoading(true);
     try {
-      const response = await fetch('https://api.orhanaydogdu.com.tr/deprem/kandilli/live');
+      const response = await fetch('https://api.orhanaydogdu.com.tr/deprem/kandilli/live?limit=100');
       if (!response.ok) throw new Error('Veri alınamadı');
       const data: ApiResponse = await response.json();
       setEarthquakes(data.result || []);
@@ -129,9 +129,28 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const getEqDateParts = (eq: any) => {
+    const s = eq.date || eq.date_time || eq.tarih || '';
+    if (!s) return { date: '----.--.--', time: '--:--:--' };
+    
+    // Handle "YYYY.MM.DD HH:MM:SS"
+    if (s.includes(' ')) {
+      const parts = s.split(' ');
+      return { date: parts[0], time: parts[1] };
+    }
+    
+    // Handle ISO "YYYY-MM-DDTHH:MM:SS"
+    if (s.includes('T')) {
+      const parts = s.split('T');
+      return { date: parts[0], time: parts[1].replace('Z', '') };
+    }
+
+    return { date: s, time: '--:--:--' };
+  };
+
   // Audit & Clustering Logic
-  const { alerts, stats, diagnostics, rawSample } = useMemo(() => {
-    if (earthquakes.length === 0) return { alerts: [], stats: { total: 0, recent: 0, reference: null }, diagnostics: [], rawSample: '' };
+  const { alerts, stats, diagnostics, rawSample, processedQuakes, importantQuakes } = useMemo(() => {
+    if (earthquakes.length === 0) return { alerts: [], stats: { total: 0, recent: 0, recentMag3Plus: 0, reference: null }, diagnostics: [], rawSample: '', processedQuakes: [], importantQuakes: [] };
 
     // 1. Parse all dates and find reference
     const parsedData = earthquakes.map(q => {
@@ -149,13 +168,19 @@ export default function App() {
       ? new Date(Math.max(...validDates.map(d => d.parsedDate.getTime()))) 
       : new Date();
     
-    const sixHoursMs = 6 * 60 * 60 * 1000;
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
     const referenceMs = referenceTime.getTime();
     
-    // 2. Filter quakes within 6 hours of reference
+    // 2. Filter quakes within 24 hours of reference
     const recentQuakes = validDates.filter(d => {
-      return (referenceMs - d.parsedDate.getTime()) <= sixHoursMs;
+      return (referenceMs - d.parsedDate.getTime()) <= twentyFourHoursMs;
     });
+
+    const importantQuakesList = recentQuakes
+      .filter(q => q.mag >= 3)
+      .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
+
+    const recentMag3Plus = importantQuakesList.length;
 
     const clusters: { id: string; location: string; count: number; maxMag: number; latest: Earthquake }[] = [];
     const processedIds = new Set<string>();
@@ -196,6 +221,7 @@ export default function App() {
       stats: {
         total: earthquakes.length,
         recent: recentQuakes.length,
+        recentMag3Plus,
         reference: referenceTime
       },
       diagnostics: earthquakes.slice(0, 5).map(q => {
@@ -209,7 +235,9 @@ export default function App() {
           lng: parseFloat(String(q.geojson?.coordinates[0] || (q as any).lng || 0))
         };
       }),
-      rawSample: JSON.stringify(earthquakes[0]).slice(0, 200)
+      rawSample: JSON.stringify(earthquakes[0]).slice(0, 200),
+      processedQuakes: parsedData,
+      importantQuakes: importantQuakesList
     };
   }, [earthquakes]);
 
@@ -256,7 +284,7 @@ export default function App() {
             </div>
             <div className="flex items-center gap-2 text-[10px] text-gray-400 font-medium">
               <Clock className="w-3 h-3" />
-              Son 6 Saatte {stats.recent} Deprem
+              Son 24 Saatte {stats.recent} Deprem (<span className="text-amber-600 font-bold">{stats.recentMag3Plus} ≥ 3.0</span>)
             </div>
           </div>
 
@@ -264,61 +292,120 @@ export default function App() {
             <div className="flex items-start gap-3">
               <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
               <p className="text-[11px] text-blue-700 leading-relaxed">
-                <strong>Kriter:</strong> Son 6 saat içinde <strong>20 km çapındaki bir alan</strong> içerisinde, büyüklük fark etmeksizin <strong>3 veya daha fazla</strong> deprem gerçekleştiğinde burada listelenir.
+                <strong>Kriter:</strong> Son 24 saat içinde <strong>20 km çapındaki bir alan</strong> içerisinde, büyüklük fark etmeksizin <strong>3 veya daha fazla</strong> deprem gerçekleştiğinde burada listelenir.
               </p>
             </div>
             {stats.reference && (
               <div className="pt-2 border-t border-blue-100 grid grid-cols-2 gap-2 text-[9px] text-blue-400 font-mono uppercase">
                 <span>Referans Zaman: {format(stats.reference, 'HH:mm:ss')}</span>
-                <span>Taranan (Son 6s): {stats.recent} Deprem</span>
+                <span>Taranan (Son 24s): {stats.recent} Deprem</span>
               </div>
             )}
           </div>
           
           <AnimatePresence mode="popLayout">
-            {alerts.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {alerts.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {alerts.map((alert) => (
                   <motion.div
                     key={alert.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white border-l-4 border-red-500 rounded-xl p-3 shadow-sm flex items-start gap-3"
+                    className={cn(
+                      "border-l-4 rounded-xl p-2 shadow-sm flex items-center justify-between gap-2",
+                      alert.maxMag >= 4 ? "bg-red-50/30 border-red-500" : 
+                      alert.maxMag >= 3 ? "bg-amber-50/30 border-amber-500" : 
+                      "bg-white border-gray-400"
+                    )}
                   >
-                    <div className="p-2 bg-red-50 rounded-lg shrink-0">
-                      <AlertTriangle className="w-4 h-4 text-red-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-sm leading-tight truncate">{alert.location}</h3>
-                      <p className="text-gray-500 text-[11px] mt-0.5">
-                        Son 6 saatte <span className="font-bold text-red-600">{alert.count}</span> deprem.
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="text-[9px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
-                          Max: {alert.maxMag}
-                        </span>
-                        <span className="text-[9px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
-                          Son: {alert.latest.date?.split(' ')[1] || '--:--'}
-                        </span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={cn(
+                        "p-1 rounded-lg shrink-0",
+                        alert.maxMag >= 4 ? "bg-red-50" : 
+                        alert.maxMag >= 3 ? "bg-amber-50" : 
+                        "bg-gray-50"
+                      )}>
+                        <AlertTriangle className={cn(
+                          "w-3 h-3",
+                          alert.maxMag >= 4 ? "text-red-600" : 
+                          alert.maxMag >= 3 ? "text-amber-600" : 
+                          "text-gray-600"
+                        )} />
                       </div>
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-xs leading-tight truncate">{alert.location}</h3>
+                        <p className="text-gray-500 text-[10px] mt-0.5 flex items-center gap-1">
+                          <span className="font-bold text-red-600">{alert.count}</span> deprem.
+                          {alert.maxMag >= 3 && (
+                            <span className="text-[8px] font-black text-amber-600 bg-amber-50 px-1 rounded border border-amber-100">3.0+</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={cn(
+                        "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase",
+                        alert.maxMag >= 4 ? "bg-red-50 text-red-600" : 
+                        alert.maxMag >= 3 ? "bg-amber-50 text-amber-600" : 
+                        "bg-gray-100 text-gray-600"
+                      )}>
+                        M: {alert.maxMag}
+                      </span>
+                      <span className="text-[8px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">
+                        S: {getEqDateParts(alert.latest).time.slice(0, 5)}
+                      </span>
                     </div>
                   </motion.div>
                 ))}
               </div>
-            ) : (
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="bg-white border border-dashed border-gray-200 rounded-2xl p-8 text-center"
-              >
-                <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Activity className="w-6 h-6 text-gray-300" />
-                </div>
-                <p className="text-gray-400 text-sm font-medium">Şu an için aktif bir kümelenme uyarısı bulunmuyor.</p>
-              </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Important Quakes (3.0+) */}
+          {importantQuakes.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2 px-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                <h3 className="text-[11px] font-black uppercase tracking-wider text-gray-500">Önemli Depremler (3.0+)</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {importantQuakes.slice(0, 6).map((eq) => (
+                  <motion.div
+                    key={eq.earthquake_id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white border border-amber-100 rounded-lg p-2 flex items-center justify-between gap-2 shadow-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-bold text-[10px] truncate leading-tight">{eq.title}</h4>
+                      <p className="text-[9px] text-gray-400 font-medium">{getEqDateParts(eq).time.slice(0, 5)}</p>
+                    </div>
+                    <div className={cn(
+                      "text-[10px] font-black px-1.5 py-0.5 rounded shrink-0",
+                      eq.mag >= 4 ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
+                    )}>
+                      {eq.mag.toFixed(1)}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {alerts.length === 0 && importantQuakes.length === 0 && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="bg-white border border-dashed border-gray-200 rounded-2xl p-8 text-center"
+            >
+              <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Activity className="w-6 h-6 text-gray-300" />
+              </div>
+              <p className="text-gray-400 text-sm font-medium">Şu an için herhangi bir kümelenme veya önemli deprem tespit edilmedi.</p>
+            </motion.div>
+          )}
         </section>
 
         {/* Recent Earthquakes List */}
@@ -326,7 +413,9 @@ export default function App() {
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-gray-400" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Son Depremler</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
+                Son Depremler ({earthquakes.length})
+              </h2>
             </div>
             <div className="text-[10px] font-mono text-gray-400">
               Son Güncelleme: {format(lastUpdated, 'HH:mm:ss')}
@@ -348,7 +437,7 @@ export default function App() {
               </div>
             ) : (
               <div className="divide-y divide-gray-50">
-                {earthquakes.slice(0, 50).map((eq) => (
+                {processedQuakes.slice(0, 100).map((eq) => (
                   <motion.div 
                     key={eq.earthquake_id}
                     layout
@@ -373,7 +462,14 @@ export default function App() {
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
                         <div className="flex items-center gap-1.5 text-gray-400">
                           <Clock className="w-3.5 h-3.5" />
-                          <span className="text-xs font-medium">{eq.date}</span>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-gray-900">
+                              {eq.parsedDate ? format(eq.parsedDate, 'HH:mm:ss') : getEqDateParts(eq).time}
+                            </span>
+                            <span className="text-[10px] font-bold text-gray-500">
+                              {eq.parsedDate ? format(eq.parsedDate, 'yyyy.MM.dd') : getEqDateParts(eq).date}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5 text-gray-400">
                           <MapPin className="w-3.5 h-3.5" />
@@ -412,8 +508,10 @@ export default function App() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p>Toplam Veri: {stats.total}</p>
-                <p>Filtrelenen (6s): {stats.recent}</p>
+                <p>Filtrelenen (24s): {stats.recent}</p>
+                <p>3.0+ Deprem: {stats.recentMag3Plus}</p>
                 <p>Referans: {stats.reference ? format(stats.reference, 'yyyy-MM-dd HH:mm:ss') : 'Yok'}</p>
+                <p className="text-[8px] mt-1 text-gray-400 truncate">URL: kandilli/live?limit=100</p>
               </div>
               <div>
                 <p>Aktif Uyarı: {alerts.length}</p>
