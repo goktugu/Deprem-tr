@@ -684,10 +684,15 @@ export default function App() {
                               </span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1.5 text-gray-400">
-                            <MapPin className="w-3.5 h-3.5" />
-                            <span className="text-xs font-medium">Derinlik: {eq.depth} km</span>
-                          </div>
+                    <div className="flex items-center gap-1.5 text-gray-400">
+    {/* Eğer depth===0 ise ikon rengi text-blue-500 oluyor */}
+    <MapPin className={cn("w-3.5 h-3.5", eq.depth === 0 && "text-blue-500")} />
+    
+    {/* Eğer depth===0 ise metin mavi, kalın ve arkası açık mavi alanlı oluyor */}
+    <span className={cn("text-xs font-medium", eq.depth === 0 && "text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-bold")}>
+      Derinlik: {eq.depth} km
+    </span>
+  </div>
                         </div>
                       </div>
 
@@ -750,9 +755,14 @@ export default function App() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 text-gray-400">
-                              <MapPin className="w-3.5 h-3.5" />
-                              <span className="text-xs font-medium">Derinlik: {eq.depth} km</span>
-                            </div>
+    {/* Eğer depth===0 ise ikon rengi text-blue-500 oluyor */}
+    <MapPin className={cn("w-3.5 h-3.5", eq.depth === 0 && "text-blue-500")} />
+    
+    {/* Eğer depth===0 ise metin mavi, kalın ve arkası açık mavi alanlı oluyor */}
+    <span className={cn("text-xs font-medium", eq.depth === 0 && "text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-bold")}>
+      Derinlik: {eq.depth} km
+    </span>
+  </div>
                           </div>
                         </div>
                       </div>
