@@ -346,8 +346,10 @@ export default function App() {
     const clusters: { id: string; location: string; count: number; maxMag: number; latest: Earthquake }[] = [];
     const processedIds = new Set<string>();
 
+    const validClusterQuakes = recentQuakes.filter(q => q.depth > 0);
+
     // 3. Sort by magnitude to find cluster centers
-    const sortedQuakes = [...recentQuakes].sort((a, b) => b.mag - a.mag);
+    const sortedQuakes = [...validClusterQuakes].sort((a, b) => b.mag - a.mag);
 
     sortedQuakes.forEach(q => {
       if (processedIds.has(q.earthquake_id)) return;
@@ -357,7 +359,7 @@ export default function App() {
       
       if (lat1 === 0 || lon1 === 0) return;
 
-      const neighbors = recentQuakes.filter(other => {
+      const neighbors = validClusterQuakes.filter(other => {
         const lat2 = parseFloat(String(other.geojson?.coordinates[1] || (other as any).lat || 0));
         const lon2 = parseFloat(String(other.geojson?.coordinates[0] || (other as any).lng || 0));
         if (lat2 === 0 || lon2 === 0) return false;
